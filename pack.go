@@ -1,117 +1,36 @@
-package main
+package wasmpack
 
 import (
 	"bytes"
 	"compress/flate"
 	"encoding/base64"
-	"flag"
 	"fmt"
-	"io"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"time"
-
-	"github.com/tdewolff/minify"
-	"github.com/tdewolff/minify/js"
 )
 
-func main() {
-	var name string
-	var silent bool
-	var output string
-	flag.Usage = func() {
-		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "usage %s <path>:\n", os.Args[0])
-		flag.PrintDefaults()
-	}
-	flag.BoolVar(&silent, "s", false, "silent mode (default: false)")
-	flag.StringVar(&name, "n", "", "name of the global function (default: run immediately)")
-	flag.StringVar(&output, "o", "", "output file (default: stdout)")
-	flag.Parse()
-	if flag.NArg() != 1 {
-		flag.Usage()
-		os.Exit(1)
-	}
-	path := flag.Arg(0)
-
-	var wasm []byte
-	var err error
-	if strings.HasSuffix(path, ".wasm") {
-		wasm, err = os.ReadFile(path)
-		if err != nil {
-			println("read error: " + err.Error())
-			os.Exit(1)
-		}
-	} else {
-		wasm, err = build(path)
-		if err != nil {
-			println("build error: " + err.Error())
-			os.Exit(1)
-		}
-	}
-	code, err := pack(wasm)
-	if err != nil {
-		println("pack error: " + err.Error())
-		os.Exit(1)
-	}
-	code, err = wrap(name, code)
-	if err != nil {
-		println("wrap error: " + err.Error())
-		os.Exit(1)
-	}
-
-	if !silent {
-		_, err = fmt.Fprintf(os.Stderr, "%s: %.2f MB -> %.2f MB (%.2f%%)\n", strings.TrimPrefix(output, "./"), float64(len(wasm))/1024/1024, float64(len(code))/1024/1024, float64(len(code))/float64(len(wasm))*100)
-		if err != nil {
-			println("info error: " + err.Error())
-			os.Exit(1)
-		}
-	}
-
-	var w io.Writer
-	if output != "" {
-		f, err := os.Create(output)
-		if err != nil {
-			println("create error: " + err.Error())
-			os.Exit(1)
-		}
-		defer f.Close()
-		w = f
-	} else {
-		w = os.Stdout
-	}
-	_, err = w.Write([]byte(code))
-	if err != nil {
-		println("write error: " + err.Error())
-		os.Exit(1)
-	}
-
-}
-
-func pack(wasm []byte) (string, error) {
+// Pack takes the wasm bytes, compresses them using the deflate algorithm, and returns a JavaScript snippet that inflates
+// the compressed bytes and returns them as an Uint8Array.
+func Pack(wasm []byte) ([]byte, error) {
 	buf := &bytes.Buffer{}
 	w, err := flate.NewWriter(buf, flate.BestCompression)
 	if err != nil {
-		return "", fmt.Errorf("error creating deflate object: %w", err)
+		return nil, fmt.Errorf("error creating deflate object: %w", err)
 	}
 	n, err := w.Write(wasm)
 	if err != nil {
-		return "", fmt.Errorf("error compressing data: %w", err)
+		return nil, fmt.Errorf("error compressing data: %w", err)
 	}
 	if len(wasm) != n {
-		return "", fmt.Errorf("buffer size mismatch: expected %d, got %d", len(wasm), n)
+		return nil, fmt.Errorf("buffer size mismatch: expected %d, got %d", len(wasm), n)
 	}
 	err = w.Flush()
 	if err != nil {
-		return "", fmt.Errorf("error flushing deflate object: %w", err)
+		return nil, fmt.Errorf("error flushing deflate object: %w", err)
 	}
 	err = w.Close()
 	if err != nil {
-		return "", fmt.Errorf("error closing deflate object: %w", err)
+		return nil, fmt.Errorf("error closing deflate object: %w", err)
 	}
-	return `((input) => {
+	return []byte(`((input) => {
     	const ENCODING = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=",
         W_SIZE = 32768, STORED_BLOCK = 0, STATIC_TREES = 1, DYN_TREES = 2, L_BITS = 9, D_BITS = 6,
         MASK_BITS = [0x0000, 0x0001, 0x0003, 0x0007, 0x000f, 0x001f, 0x003f, 0x007f, 0x00ff, 0x01ff, 0x03ff, 0x07ff, 0x0fff, 0x1fff, 0x3fff, 0x7fff, 0xffff],
@@ -591,79 +510,5 @@ func pack(wasm []byte) (string, error) {
     while (buf_i > 0);
     inflate_data = null;
     return new Uint8Array(buf).buffer;
-})(` + "`" + base64.StdEncoding.EncodeToString(buf.Bytes()) + "`" + `)`, nil
-}
-
-func wrap(name string, wasm string) (string, error) {
-	cmd := exec.Command("go", "version")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", err
-	}
-	goVersion := strings.Replace(string(out), "\n", "", -1)
-	goVersion = strings.Replace(goVersion, "\r", "", -1)
-	goVersion = strings.TrimSpace(goVersion)
-	goVersion = strings.TrimPrefix(goVersion, "go version ")
-	cmd = exec.Command("go", "env", "GOROOT")
-	out, err = cmd.CombinedOutput()
-	if err != nil {
-		return "", err
-	}
-	goRoot := strings.Replace(string(out), "\n", "", -1)
-	goRoot = strings.Replace(goRoot, "\r", "", -1)
-	goRoot = strings.TrimSpace(goRoot)
-	if string(goRoot) == "" {
-		return "", fmt.Errorf("GOROOT is empty")
-	}
-	for _, dir := range []string{"lib", "misc"} {
-		if code, err := os.ReadFile(filepath.Join(goRoot, dir, "wasm", "wasm_exec.js")); err == nil {
-			pre := ""
-			post := ""
-			if name != "" {
-				pre = "globalThis[\"" + name + "\"] = (env, args) => {\n" +
-					"if(env && typeof env === 'object') go.env = env;\n" +
-					"if(args && args.length > 0) go.argv.push(args);\n"
-				post = "}\n"
-			}
-			code = bytes.Replace(code, []byte("globalThis.Go ="), []byte("\tif(globalThis[\""+name+"\"]) throw new Error('global function \""+name+"\" already exists');\n"+
-				pre+
-				"const go = new "), 1)
-			code = bytes.Replace(code, []byte("})();"), []byte("WebAssembly.instantiate("+wasm+", go.importObject).then(({instance}) => {\n"+
-				"go.run(instance);\n"+
-				"})\n"+
-				post+
-				"})();\n"), 1)
-			m := minify.New()
-			m.AddFunc("application/javascript", js.Minify)
-			buf := &bytes.Buffer{}
-			buf.WriteString("// built with " + goVersion + " at " + time.Now().Format(time.RFC3339) + "\n")
-			if err := m.Minify("application/javascript", buf, bytes.NewReader(code)); err != nil {
-				return "", err
-			}
-			return buf.String(), nil
-		}
-	}
-	return "", fmt.Errorf("wasm_exec.js not found in %s", goRoot)
-}
-
-func build(path string) ([]byte, error) {
-	out := filepath.Join(os.TempDir(), "wasmpack"+strconv.Itoa(time.Now().Nanosecond())+".wasm")
-	cmd := exec.Command("go", "build", "-o", out, "-ldflags=-s -w", "-trimpath", path)
-	cmd.Env = append([]string{"GOOS=js", "GOARCH=wasm", "CGO_ENABLED=0"}, os.Environ()...)
-	cmd.Stdin = os.Stdin
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-	err := cmd.Run()
-	if err != nil {
-		return nil, fmt.Errorf("error building wasm: %w: %s", err, string(out))
-	}
-	wasm, err := os.ReadFile(out)
-	if err != nil {
-		return nil, fmt.Errorf("error reading wasm file: %w", err)
-	}
-	err = os.Remove(out)
-	if err != nil {
-		return nil, fmt.Errorf("error removing wasm file: %w", err)
-	}
-	return wasm, nil
+})(` + "`" + base64.StdEncoding.EncodeToString(buf.Bytes()) + "`" + `)`), nil
 }
