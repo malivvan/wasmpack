@@ -1,4 +1,5 @@
 # wasmpack
+# ![test](https://github.com/malivvan/wasmpack/workflows/test/badge.svg) [![Release](https://img.shields.io/github/v/release/malivvan/wasmpack.svg?sort=semver)](https://github.com/malivvan/wasmpack/releases/latest) [![Go Report Card](https://goreportcard.com/badge/github.com/malivvan/wasmpack)](https://goreportcard.com/report/github.com/malivvan/wasmpack) [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 A CLI tool and Go library for building, optimizing, and packaging WebAssembly modules compiled from Go into a single JavaScript file. Supports self-executing IIFEs, ES modules, CommonJS modules, standalone HTML pages, and a live-reloading development server.
 
 ## Features

@@ -1,0 +1,30 @@
+name: test
+
+on: [push, workflow_dispatch]
+
+jobs:
+  unit:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: setup
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: './go.mod'
+          cache-dependency-path: './go.sum'
+      - name: install
+        run: make install
+      - name: run tests
+        run: make test TEST_FORMAT=github-actions
