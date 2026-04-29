@@ -1,10 +1,6 @@
 .PHONY: sample build serve
 .DEFAULT_GOAL := help
 
-.PHONY: sample
-sample: ## Build the sample
-	@go run ./cmd -pre ./sample/pre.js -post ./sample/post.js -garble "-seed=random -literals -tiny" -opt "--enable-bulk-memory -Oz --converge --flatten --rereloop -Oz" -obfus="-compact" -minify -name init ./sample/main.go ./sample/main.js
-
 .PHONY: serve
 serve: ## Serve the sample
 	python3 -m http.server 8222 -d sample

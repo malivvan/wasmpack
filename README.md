@@ -1,204 +1,206 @@
 # wasmpack
-
-A powerful CLI tool and Go package for building, optimizing, and packaging WebAssembly (WASM) modules compiled from Go code into a single JavaScript file. Perfect for embedding WASM functionality directly in your web applications without needing separate file dependencies.
+A CLI tool and Go library for building, optimizing, and packaging WebAssembly modules compiled from Go into a single JavaScript file. Supports self-executing IIFEs, ES modules, CommonJS modules, standalone HTML pages, and a live-reloading development server.
 
 ## Features
-
-- **Build Go to WASM**: Compile Go source code directly to WebAssembly
-- **Compression**: Automatic DEFLATE compression of WASM binaries using base64 encoding
-- **Optimization**: Optional WASM optimization using `wasm-opt` tool
-- **Code Obfuscation**: Optional code obfuscation using `garble`
-- **JavaScript Wrapping**: Automatically wraps WASM modules with Go's `wasm_exec.js` runtime
-- **Minification**: Optional JavaScript minification for production builds
-- **Custom Prefixing**: Add custom JavaScript code before the generated output
-- **Single File Output**: Creates a self-contained JavaScript file that includes everything needed to run your Go WASM code
+- **Build Go → WASM** — compiles any Go package with `GOOS=js GOARCH=wasm`
+- **TinyGo support** — compile with [tinygo](https://tinygo.org/) instead of the standard Go toolchain
+- **Skip build step** — pass a pre-compiled `.wasm` file to skip compilation
+- **Compression** — DEFLATE-compresses the binary before embedding (typically 60–80% smaller)
+- **Four JS output formats** — IIFE (`.js`), ES module (`.mjs`), CommonJS module (`.cjs`), standalone HTML (`.html`)
+- **wasm-opt integration** — optional Binaryen optimisation pass via [wasm-opt](https://github.com/WebAssembly/binaryen)
+- **Garble support** — optional Go build obfuscation via [garble](https://github.com/burrowers/garble)
+- **JS obfuscation** — powered by [javascript-obfuscator](https://github.com/javascript-obfuscator/javascript-obfuscator) (**no Node.js required**)
+- **JS minification** — built-in minifier, no external tools needed
+- **Pre / post JS injection** — prepend or append custom JS files
+- **Live-reload dev server** — watches source files, rebuilds on change, auto-refreshes the browser
 
 ## Installation
-
-Install the CLI tool:
-
 ```bash
 go install github.com/malivvan/wasmpack/cmd@latest
 ```
-
-Or use the package in your Go projects:
-
+Or use the library in your Go project:
 ```bash
 go get github.com/malivvan/wasmpack
 ```
 
-## Usage
-
-### Command Line Interface
-
-```bash
-wasmpack [flags] <source> <output>
-```
-
-#### Arguments
-
-- `<source>`: Path to Go source file/directory or a compiled `.wasm` file
-- `<output>`: Output JavaScript file path
-
-#### Flags
-
-- `-name string`: Name of the global function (if not specified, the WASM code runs immediately)
-- `-minify`: Minify the output JavaScript code (default: false)
-- `-silent`: Silent mode - suppress informational output (default: false)
-- `-pre string`: Path to a JavaScript file to prefix the output with
-- `-post string`: Path to a JavaScript filprefixe to suffix the output with
-- `-obfus string`: Arguments to pass to obfuscate.js (optional)
-- `-garble string`: Arguments to pass to `garble` for code obfuscation (optional)
-- `-opt string`: Arguments to pass to `wasm-opt` for optimization (optional)
-
-#### Examples
-
-**Basic compilation from Go source:**
+## CLI usage
+### `wasmpack init [path]`
+Write a default `wasmpack.yml` configuration file.
 
 ```bash
-wasmpack sample/main.go output.js
+wasmpack init                  # creates ./wasmpack.yml
+wasmpack init ./myproject      # creates ./myproject/wasmpack.yml
+wasmpack init path/to/cfg.yml  # creates the file at the exact path
 ```
 
-**With optimization:**
+### `wasmpack pack [flags] <source> <destination>`
+Compile `source` and write the result to `destination`.
+**Source** — a Go package directory, a `main.go` file, or a pre-compiled `.wasm` file.
+When source ends with `.wasm` the build step is skipped entirely.
+**Destination extensions** control the output format:
+
+| Extension | Output                                                           |
+|-----------|------------------------------------------------------------------|
+| `.wasm`   | Raw binary only (no JS wrapper)                                  |
+| `.js`     | Self-executing IIFE — runs immediately when the script is loaded |
+| `.mjs`    | ES module that exports `run(env, args)`                          |
+| `.cjs`    | CommonJS module that exports `run(env, args)`                    |
+| `.html`   | Minimal HTML page with the IIFE in a `<script defer>` tag        |
+
+**Pack flags:**
+
+| Flag         | Description                                                          |
+|--------------|----------------------------------------------------------------------|
+| `-garble`    | Obfuscate the Go build with garble (options from `wasmpack.yml`)     |
+| `-tinygo`    | Compile with tinygo instead of go (options from `wasmpack.yml`)      |
+| `-wasm-opt`  | Optimise the wasm binary with wasm-opt (options from `wasmpack.yml`) |
+| `-minify`    | Minify the JS output                                                 |
+| `-obfuscate` | Obfuscate the JS output (options from `wasmpack.yml`)                |
 
 ```bash
-wasmpack -opt "-O4" sample/main.go output.js
+wasmpack pack ./sample output.html             # standalone HTML page
+wasmpack pack ./sample output.js              # self-executing IIFE bundle
+wasmpack pack ./sample output.mjs             # ES module
+wasmpack pack ./sample output.cjs             # CommonJS module
+wasmpack pack ./sample output.wasm            # raw binary only
+wasmpack pack compiled.wasm output.js         # skip compilation, use pre-built .wasm
+wasmpack pack -tinygo ./sample output.js      # compile with tinygo
+wasmpack pack -wasm-opt -minify ./sample out.js  # wasm-opt + minified JS
 ```
 
-**With minification and custom global function:**
+Example output:
+```
+  build      2.41 MB  (0.89s)
+  wrap       html
+  write      output.html  2.41 MB → 0.89 MB  (37.0%)
+  done       1.12s
+```
+
+### `wasmpack dev [flags] <source> <addr>`
+Start a live-reloading development server.
+
+**Dev flags:**
+
+| Flag   | Description                                                                                          |
+|--------|------------------------------------------------------------------------------------------------------|
+| `-coi` | Set `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` headers, enabling a [cross-origin isolated](https://developer.mozilla.org/en-US/docs/Web/API/crossOriginIsolated) context (required for `SharedArrayBuffer` / `Atomics`) |
 
 ```bash
-wasmpack -name "init" -m sample/main.go output.js
+wasmpack dev ./sample :8080            # all interfaces, port 8080
+wasmpack dev ./sample localhost:3000   # loopback only
+wasmpack dev compiled.wasm :9000       # serve pre-built wasm, watch for changes
+wasmpack dev -coi ./sample :8080       # enable cross-origin isolation
 ```
 
-**With code obfuscation:**
-
-```bash
-wasmpack -garble "-literals" sample/main.go output.js
+Example output:
+```
+  build      2.41 MB  (0.89s)
+  watch      /home/user/project/sample
+  serve      http://localhost:8080
+  · main.go changed
+  build      2.41 MB  (0.34s)
+  reload     1 client(s)
 ```
 
-**With pre JavaScript:**
+The server:
+- Builds and serves a self-contained HTML page at `/`
+- Watches all `.go` files in the source directory (or the `.wasm` file) for changes
+- Rebuilds automatically on change and reloads connected browsers via SSE
+- Skips wasm-opt, garble, tinygo, obfuscation, and minification for fast iteration
+## Configuration (`wasmpack.yml`)
+`wasmpack.yml` is discovered by walking up from the current working directory — the same mechanism Go uses for `go.mod`. Run `wasmpack init` to generate a documented template.
 
-```bash
-wasmpack -pre pre.js sample/main.go output.js
+```yaml
+# wasm-opt: options for wasm-opt (used when -wasm-opt flag is passed to pack)
+# garble:    options for garble (used when -garble flag is passed to pack)
+# tinygo:    options for tinygo (used when -tinygo flag is passed to pack)
+# pre:       path to a JS file prepended to the output
+# post:      path to a JS file appended to the output
+# obfuscate: javascript-obfuscator options (used when -obfuscate flag is passed to pack)
+#            see https://github.com/javascript-obfuscator/javascript-obfuscator
+pre: ""
+post: ""
+garble:
+  seed: ""       # randomness seed (-seed)
+  literals: false # obfuscate string literals (-literals)
+  tiny: false    # smaller output (-tiny)
+  flags: ""      # extra space-separated garble flags
+tinygo:
+  target: "wasm" # compile target (e.g. "wasm", "wasi")
+  opt: ""        # optimization level (none, 0, 1, 2, s, z)
+  flags: ""      # extra space-separated tinygo flags
+wasm-opt:
+  level: "O2"    # optimization level (O1, O2, O3, O4, Os)
+  flags: ""      # extra space-separated wasm-opt flags
+obfuscate:
+  compact: true
+  controlFlowFlattening: false
+  # ... all javascript-obfuscator options supported
+  # see https://github.com/javascript-obfuscator/javascript-obfuscator
 ```
 
-**With post JavaScript:**
-
-```bash
-wasmpack -post post.js sample/main.go output.js
-```
-
-**Optimize a pre-compiled WASM file:**
-
-```bash
-wasmpack -opt "-O4" compiled.wasm output.js
-```
-
-### Go Package
-
-Use wasmpack as a library in your Go projects:
+## Go library API
 
 ```go
-package main
+import "github.com/malivvan/wasmpack"
 
-import (
-    "os"
-    "github.com/malivvan/wasmpack"
+// Compile a Go package to raw WASM bytes.
+// useGarble and useTinygo are mutually exclusive; useGarble takes precedence.
+wasm, err := wasmpack.Build(
+    "./mypkg",
+    useGarble, wasmpack.GarbleConfig{Literals: true},
+    useTinygo, wasmpack.TinygoConfig{Target: "wasm"},
+    useWasmOpt, wasmpack.WasmOptConfig{Level: "O2"},
 )
 
-func main() {
-    // Build Go source to WASM
-    wasm, err := wasmpack.Build("main.go", "", "-O4")
-    if err != nil {
-        panic(err)
-    }
+// Compress + encode the WASM binary into a JS inflate snippet.
+packed, err := wasmpack.Pack(wasm)
 
-    // Pack the WASM binary (compress and encode)
-    packed, err := wasmpack.Pack(wasm)
-    if err != nil {
-        panic(err)
-    }
+// Wrap in wasm_exec.js as a self-executing IIFE.
+js, err := wasmpack.WrapIIFE(packed)
+// Wrap as an ES module exporting run(env, args).
+js, err := wasmpack.WrapESM(packed)
+// Wrap as a CommonJS module exporting run(env, args).
+js, err := wasmpack.WrapCJS(packed)
+// Wrap inside a minimal HTML page (IIFE in <script defer>).
+html, err := wasmpack.WrapHTML(packed)
 
-    // Wrap with Go's WASM runtime
-    code, err := wasmpack.Wrap("myFunction", packed)
-    if err != nil {
-        panic(err)
-    }
+// Run wasm-opt on a WASM file in-place.
+err = wasmpack.WasmOpt("/path/to/file.wasm", []string{"-O2"})
 
-    // Optionally minify
-    minified, err := wasmpack.Minify(code)
-    if err != nil {
-        panic(err)
-    }
+// Obfuscate JS (no Node.js required).
+out, err := wasmpack.Obfuscate(js, "-controlFlowFlattening")
+out, err := wasmpack.ObfuscateWithOptions(js, options)
+// Parse obfuscate flag string to options map.
+opts, err := wasmpack.ParseObfuscateOptions("-controlFlowFlattening -compact=false")
 
-    // Write to file
-    os.WriteFile("output.js", minified, 0644)
-}
+// Minify JS.
+out, err := wasmpack.Minify(js)
+
+// Config helpers.
+cfg  := wasmpack.DefaultConfig()
+path, err := wasmpack.FindConfig(".")     // walk-up search
+cfg,  err  = wasmpack.LoadConfig(path)
+err        = wasmpack.WriteDefaultConfig(path)
 ```
 
-#### Package Functions
-
-- **`Build(path string, garble string, wasmopt string) ([]byte, error)`**: Compiles Go code to WASM
-  - `path`: Path to Go source file or directory
-  - `garble`: Arguments for garble obfuscation (empty string to skip)
-  - `wasmopt`: Arguments for wasm-opt optimization (empty string to skip)
-- **`Pack(wasm []byte) ([]byte, error)`**: Compresses WASM binary using DEFLATE and encodes as JavaScript
-- **`Wrap(name string, code []byte) ([]byte, error)`**: Wraps WASM code with Go's runtime
-  - `name`: Global function name (empty string to run immediately)
-- **`Minify(code []byte) ([]byte, error)`**: Minifies JavaScript code
-- **`Optimize(path string, opt string) error`**: Optimizes a WASM file using wasm-opt
-- **`Obfuscate(path string, obfus string) error`**: Obfuscates Go code using obfuscate.js
-
-## How It Works
-
-1. **Build**: Compiles Go source code to WebAssembly using the Go compiler with `GOOS=js GOARCH=wasm`
-2. **Optimize** (optional): Runs `wasm-opt` to reduce WASM binary size
-3. **Pack**: Compresses the WASM binary using DEFLATE compression and encodes it as base64 within JavaScript code
-4. **Wrap**: Embeds the compressed WASM with Go's `wasm_exec.js` runtime into a single JavaScript file
-5. **Minify** (optional): Reduces JavaScript code size for production
-
-The result is a single JavaScript file containing:
-- Go's WASM runtime (`wasm_exec.js`)
-- Compressed and encoded WASM binary
-- Code to decompress and instantiate the WASM module
+## Output size
+DEFLATE compression typically achieves a 60–80% reduction before wrapping:
+```
+  write    output.js  5.23 MB → 1.45 MB  (27.7%)
+```
 
 ## Requirements
+- **Go 1.25+**
+- **wasm-opt** *(optional)*: [Binaryen releases](https://github.com/WebAssembly/binaryen/releases)
+- **garble** *(optional)*: `go install mvdan.cc/garble@latest`
+- **tinygo** *(optional)*: [tinygo.org/doc/getting-started/overview](https://tinygo.org/getting-started/overview/)
 
-- **Go 1.25.0 or later**
-- **wasm-opt** (optional, for WASM optimization): [Install from Binaryen](https://github.com/WebAssembly/binaryen)
-- **garble** (optional, for code obfuscation): `go install github.com/burrowers/garble@latest`
-
-## Example Project
-
-The `sample/` directory contains a simple example:
-
-```html
-<!doctype html>
-<html lang="en">
-<head>
-    <title>wasmpack</title>
-    <script src="main.js"></script>
-    <script>init()</script>
-</head>
-</html>
-```
-
-Build the sample:
-
+## Sample project
+`sample/main.go` prints `Hello, World!` to the browser console.
 ```bash
-wasmpack -n "init" sample/main.go sample/main.js
-```
-
-Then open `sample/index.html` in a browser. The Go code will run and print "Hello, World!" to the browser console.
-
-## Output Size Benefits
-
-The DEFLATE compression in the Pack step typically achieves:
-- **60-80% reduction** in WASM binary size before JavaScript wrapping
-- Final output is a self-contained JavaScript file with no external dependencies
-
-Example output from the CLI shows compression ratio:
-```
-output.js: 5.23 MB -> 1.45 MB (27.71%)
+# Live-reload dev server
+wasmpack dev ./sample :8080
+# Build a standalone HTML page
+wasmpack pack ./sample sample/output.html
 ```

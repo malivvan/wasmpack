@@ -1,0 +1,78 @@
+# wasmpack.yml
+# Run 'wasmpack init' to regenerate this file.
+#
+# garble:    options for garble (used when -garble flag is passed to pack)
+# tinygo:    options for tinygo (used when -tinygo flag is passed to pack)
+# wasm-opt: options for wasm-opt (used when -wasm-opt flag is passed to pack)
+# pre:       path to a JS file prepended to the output
+# post:      path to a JS file appended to the output
+# obfuscate: javascript-obfuscator options (used when -obfuscate flag is passed to pack)
+#            see https://github.com/javascript-obfuscator/javascript-obfuscator
+
+pre: ""
+post: ""
+garble:
+    seed: ""
+    literals: false
+    tiny: false
+    flags: ""
+tinygo:
+    target: wasm
+    opt: ""
+    flags: ""
+wasm-opt:
+    level: O2
+    flags: ""
+obfuscate:
+    compact: true
+    controlFlowFlattening: false
+    controlFlowFlatteningThreshold: 0.75
+    deadCodeInjection: false
+    deadCodeInjectionThreshold: 0.4
+    debugProtection: false
+    debugProtectionInterval: 0
+    disableConsoleOutput: false
+    domainLock: []
+    domainLockRedirectURL: about:blank
+    exclude: []
+    forceTransformStrings: []
+    identifierNamesCache: {}
+    identifierNamesGenerator: hexadecimal
+    identifiersDictionary: []
+    identifiersPrefix: ""
+    ignoreImports: false
+    inputFileName: ""
+    log: false
+    numbersToExpressions: false
+    optionsPreset: default
+    renameGlobals: false
+    renameProperties: false
+    renamePropertiesMode: safe
+    reservedNames: []
+    reservedStrings: []
+    seed: ""
+    selfDefending: false
+    simplify: true
+    sourceMap: false
+    sourceMapBaseURL: ""
+    sourceMapFileName: ""
+    sourceMapMode: separate
+    splitStrings: false
+    splitStringsChunkLength: 0
+    stringArray: true
+    stringArrayCallsTransform: false
+    stringArrayCallsTransformThreshold: 0.5
+    stringArrayEncoding: []
+    stringArrayIndexesType:
+        - hexadecimal-number
+    stringArrayIndexShift: true
+    stringArrayRotate: true
+    stringArrayShuffle: true
+    stringArrayWrappersCount: 1
+    stringArrayWrappersChainedCalls: true
+    stringArrayWrappersParametersMaxCount: 2
+    stringArrayWrappersType: variable
+    stringArrayThreshold: 0.8
+    target: browser
+    transformObjectKeys: false
+    unicodeEscapeSequence: false

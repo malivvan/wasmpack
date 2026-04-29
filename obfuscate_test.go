@@ -16,9 +16,9 @@ const testCode = ` (function(){
         })();`
 
 func TestObfuscate(t *testing.T) {
-	code, err := Obfus([]byte(testCode), "-compact -controlFlowFlattening -controlFlowFlatteningThreshold 1")
+	code, err := Obfuscate([]byte(testCode), "-compact -controlFlowFlattening -controlFlowFlatteningThreshold 1")
 	if err != nil {
-		t.Fatalf("Obfuscation failed: %s", err)
+		t.Fatalf("obfuscation failed: %s", err)
 	}
 	t.Log(string(code))
 }

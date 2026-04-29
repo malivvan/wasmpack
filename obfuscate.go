@@ -2,7 +2,6 @@ package wasmpack
 
 import (
 	_ "embed"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"strings"
@@ -10,8 +9,8 @@ import (
 	"github.com/grafana/sobek"
 )
 
-//go:embed obfus.js
-var obfusJS string
+//go:embed obfuscate.js
+var obfuscateJS string
 
 func optionToArray(option string) (result []string) {
 	if option == "" {
@@ -41,9 +40,14 @@ func optionToMap(option string) (result map[string]string) {
 	}
 	return result
 }
-func ParseObfusOptions(args string) (map[string]any, error) {
+
+// ParseObfuscateOptions parses a flag-style argument string into a
+// javascript-obfuscator options map.
+// Example: "-controlFlowFlattening -compact=false"
+func ParseObfuscateOptions(args string) (map[string]any, error) {
 	options := make(map[string]any)
-	flags := flag.NewFlagSet("obfuscate", flag.ExitOnError)
+	// ContinueOnError so the function returns the error instead of calling os.Exit.
+	flags := flag.NewFlagSet("obfuscate", flag.ContinueOnError)
 	compact := flags.Bool("compact", true, "compact code (default: true)")
 	controlFlowFlattening := flags.Bool("controlFlowFlattening", false, "enable control flow flattening (default: false)")
 	controlFlowFlatteningThreshold := flags.Float64("controlFlowFlatteningThreshold", 0.75, "control flow flattening threshold (default: 0.75)")
@@ -95,8 +99,7 @@ func ParseObfusOptions(args string) (map[string]any, error) {
 	target := flags.String("target", "browser", "target environment for obfuscated code (default: browser)")
 	transformObjectKeys := flags.Bool("transformObjectKeys", false, "enable transformation of object keys (default: false)")
 	unicodeEscapeSequence := flags.Bool("unicodeEscapeSequence", false, "enable unicode escape sequence for string literals (default: false)")
-	err := flags.Parse(splitArgs(args))
-	if err != nil {
+	if err := flags.Parse(splitArgs(args)); err != nil {
 		return nil, err
 	}
 	if compact != nil && !*compact {
@@ -213,13 +216,12 @@ func ParseObfusOptions(args string) (map[string]any, error) {
 	if stringArrayCallsTransformThreshold != nil && *stringArrayCallsTransformThreshold != 0.5 {
 		options["stringArrayCallsTransformThreshold"] = *stringArrayCallsTransformThreshold
 	}
-
 	if stringArrayEncoding != nil && *stringArrayEncoding != "" {
 		options["stringArrayEncoding"] = optionToArray(*stringArrayEncoding)
 	}
 	if stringArrayIndexesType != nil && *stringArrayIndexesType != "" {
-		if stringArrayIndexesTypeArray := optionToArray(*stringArrayIndexesType); len(stringArrayIndexesTypeArray) > 0 && !(len(stringArrayIndexesTypeArray) == 1 && stringArrayIndexesTypeArray[0] == "hexadecimal-number") {
-			options["stringArrayIndexesType"] = stringArrayIndexesTypeArray
+		if a := optionToArray(*stringArrayIndexesType); len(a) > 0 && !(len(a) == 1 && a[0] == "hexadecimal-number") {
+			options["stringArrayIndexesType"] = a
 		}
 	}
 	if stringArrayIndexShift != nil && !*stringArrayIndexShift {
@@ -255,36 +257,41 @@ func ParseObfusOptions(args string) (map[string]any, error) {
 	if unicodeEscapeSequence != nil && *unicodeEscapeSequence {
 		options["unicodeEscapeSequence"] = *unicodeEscapeSequence
 	}
-
 	return options, nil
 }
 
-func Obfus(js []byte, args string) ([]byte, error) {
-	options, err := ParseObfusOptions(args)
+// Obfuscate obfuscates js using options parsed from a flag-style args string.
+// Example args: "-controlFlowFlattening -compact=false"
+func Obfuscate(js []byte, args string) ([]byte, error) {
+	options, err := ParseObfuscateOptions(args)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("Obfuscating JavaScript with options: %+v\n", options)
-	optionsJSON, err := json.MarshalIndent(options, "", "  ")
-	fmt.Printf("Obfuscation options:\n%s\n", string(optionsJSON))
+	return ObfuscateWithOptions(js, options)
+}
+
+// ObfuscateWithOptions obfuscates js using the provided options map.
+// Use ParseObfuscateOptions or ObfuscateConfig.ToOptions to build the map.
+func ObfuscateWithOptions(js []byte, options map[string]any) ([]byte, error) {
 	vm := sobek.New()
 	vm.SetFieldNameMapper(sobek.TagFieldNameMapper("json", true))
 	vm.GlobalObject().Set("self", vm.GlobalObject())
-	_, err = vm.RunString(obfusJS)
+	var err error
+	_, err = vm.RunString(obfuscateJS)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("loading obfuscator engine: %w", err)
 	}
 	obfuscator := vm.GlobalObject().Get("JavaScriptObfuscator")
 	if obfuscator == sobek.Undefined() {
-		return nil, fmt.Errorf("JavaScriptObfuscator is undefined")
+		return nil, fmt.Errorf("JavaScriptObfuscator not found in obfuscator engine")
 	}
 	obfuscate, ok := sobek.AssertFunction(obfuscator.ToObject(vm).Get("obfuscate"))
 	if !ok {
-		return nil, fmt.Errorf("obfuscate is not a function")
+		return nil, fmt.Errorf("JavaScriptObfuscator.obfuscate is not a function")
 	}
 	result, err := obfuscate(sobek.Undefined(), vm.ToValue(string(js)), vm.ToValue(options))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("obfuscation failed: %w", err)
 	}
 	return []byte(result.String()), nil
 }
