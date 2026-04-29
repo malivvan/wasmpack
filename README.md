@@ -6,7 +6,7 @@ A CLI tool and Go library for building, optimizing, and packaging WebAssembly mo
 - **TinyGo support** — compile with [tinygo](https://tinygo.org/) instead of the standard Go toolchain
 - **Skip build step** — pass a pre-compiled `.wasm` file to skip compilation
 - **Compression** — DEFLATE-compresses the binary before embedding (typically 60–80% smaller)
-- **Four JS output formats** — IIFE (`.js`), ES module (`.mjs`), CommonJS module (`.cjs`), standalone HTML (`.html`)
+- **Four JS output formats** — IIFE (`.js`), ESModule (`.mjs`), CommonJS (`.cjs`), standalone HTML (`.html`)
 - **wasm-opt integration** — optional Binaryen optimisation pass via [wasm-opt](https://github.com/WebAssembly/binaryen)
 - **Garble support** — optional Go build obfuscation via [garble](https://github.com/burrowers/garble)
 - **JS obfuscation** — powered by [javascript-obfuscator](https://github.com/javascript-obfuscator/javascript-obfuscator) (**no Node.js required**)
